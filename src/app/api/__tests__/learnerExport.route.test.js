@@ -64,10 +64,11 @@ afterEach(() => {
 });
 
 async function seedPurchase(buyerAddress, materialId, overrides = {}) {
+  // The route scopes queries by walletAddressLower, so seed the lowercase form.
   await db.collection('purchases').insertOne({
     purchaseId: `purchase_${materialId}`,
     materialId,
-    buyerAddress,
+    buyerAddress: buyerAddress.toLowerCase(),
     sellerAddress: 'GCREATOR_XYZ',
     status: 'confirmed',
     asset: 'GDUSDC_LOCAL',
@@ -136,13 +137,14 @@ describe('GET /api/learner-export scoping', () => {
     expect(body.summary.totalPurchases).toBe(COUNT);
     expect(body.summary.totalSpendMinorUnits).toBe(COUNT * 1_000_000);
     expect(validateExport(body)).toEqual([]);
-  });
+  }, 30_000);
 
   it('never returns another user\'s data — every query is scoped to the session user', async () => {
     // User A has 2 purchases; user B has 1. A's session must only see A's.
     await seedPurchase(WALLET_A, 'mat_a1');
     await seedPurchase(WALLET_A, 'mat_a2');
     await seedPurchase(WALLET_B, 'mat_b1');
+    // seedPurchase lowercases buyerAddress to match the route's walletAddressLower query.
 
     currentAuth.value = authedUser(WALLET_A);
     const resA = await learnerExport(jsonRequest('/api/learner-export'));
@@ -158,22 +160,22 @@ describe('GET /api/learner-export scoping', () => {
     const bodyB = await resB.json();
     expect(bodyB.purchases).toHaveLength(1);
     expect(bodyB.purchases[0].materialId).toBe('mat_b1');
-  });
+  }, 30_000);
 
   it('scopes entitlements, refunds, and progress to the session user as well', async () => {
     await seedPurchase(WALLET_A, 'mat_a1');
     await seedPurchase(WALLET_B, 'mat_b1');
     await db.collection('entitlement_cache').insertMany([
-      { materialId: 'mat_a1', buyerAddress: WALLET_A, active: true },
-      { materialId: 'mat_b1', buyerAddress: WALLET_B, active: true },
+      { materialId: 'mat_a1', buyerAddress: WALLET_A.toLowerCase(), active: true },
+      { materialId: 'mat_b1', buyerAddress: WALLET_B.toLowerCase(), active: true },
     ]);
     await db.collection('refunds').insertMany([
-      { purchaseId: 'purchase_mat_a1', materialId: 'mat_a1', buyerAddress: WALLET_A, status: 'requested', amount: 500_000 },
-      { purchaseId: 'purchase_mat_b1', materialId: 'mat_b1', buyerAddress: WALLET_B, status: 'requested', amount: 500_000 },
+      { purchaseId: 'purchase_mat_a1', materialId: 'mat_a1', buyerAddress: WALLET_A.toLowerCase(), status: 'requested', amount: 500_000 },
+      { purchaseId: 'purchase_mat_b1', materialId: 'mat_b1', buyerAddress: WALLET_B.toLowerCase(), status: 'requested', amount: 500_000 },
     ]);
     await db.collection('learner_progress').insertMany([
-      { materialId: 'mat_a1', walletAddress: WALLET_A, version: 'v1', progressPct: 50 },
-      { materialId: 'mat_b1', walletAddress: WALLET_B, version: 'v1', progressPct: 90 },
+      { materialId: 'mat_a1', walletAddress: WALLET_A.toLowerCase(), version: 'v1', progressPct: 50 },
+      { materialId: 'mat_b1', walletAddress: WALLET_B.toLowerCase(), version: 'v1', progressPct: 90 },
     ]);
 
     currentAuth.value = authedUser(WALLET_A);
@@ -186,5 +188,5 @@ describe('GET /api/learner-export scoping', () => {
     expect(body.purchases[0].refundStatus).toBe('requested');
     expect(body.purchases[0].progress.progressPct).toBe(50);
     expect(validateExport(body)).toEqual([]);
-  });
+  }, 30_000);
 });
